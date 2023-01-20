@@ -40,3 +40,10 @@ virutal machines.
 As you can see, this was a very cheap solution, even if I didn't already have
 all of the parts to hand.
 
+# The Device
+
+![esp-joystick-01](https://user-images.githubusercontent.com/6509533/213776653-9e587cf8-dbf8-4a27-a7dd-948465e5c27d.jpg)
+
+![esp-joystick-02](https://user-images.githubusercontent.com/6509533/213776670-5d69f8b1-3476-4cb4-80a2-78fa3d34a81b.jpg)
+
+![esp-joystick-03](https://user-images.githubusercontent.com/6509533/213776686-f0eb21c3-3cdb-4e9c-8a03-3b3386c6a6f7.jpg)
