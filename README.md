@@ -248,8 +248,8 @@ This all works nicely in Home Assistant where I already have Alexa integrated.
 I can now say "Alexa start vr" of "Alexa start emu", the TV turns on, the lights
 adjust and the gaming experice begins.
 
-...yeah I had a slow weekend :-)
-
+Lastly I printed a 3D case, plugged the USB connector into the PC, attached the
+header connector to the motherboard power button and power LED.
 
 ```bash
 #!/usr/bin/bash
