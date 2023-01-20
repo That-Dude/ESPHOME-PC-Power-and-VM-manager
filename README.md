@@ -234,3 +234,193 @@ binary_sensor:
     id: sensor_vm_status
 ```
 
+# unRAID script
+
+On the unRAID server I have a simple Bash script that starts on boot. It
+connects to the HID device ID of the joystick and streams the commands into a
+while loop. When a joystick button is pressed it stops any running VMs (if any)
+and start the requested VM.
+
+It also connected directly to the ESPHOME device and updates the the boot and
+VM status.
+
+This all works nicely in Home Assistant where I already have Alexa integrated.
+I can now say "Alexa start vr" of "Alexa start emu", the TV turns on, the lights
+adjust and the gaming experice begins.
+
+...yeah I had a slow weekend :-)
+
+
+```bash
+#!/usr/bin/bash
+
+# script to monitor button presses from a specific USB joystick, as defined by vifpid below.
+#
+# Requres hidapitester linux binary - there are macos and windows binaries too in case you need them.
+# https://github.com/todbot/hidapitester
+#
+# My use case: I have built a simple ESP8266 deivce that can turn ON/OFF a PC over wifi - I'm using
+# ESPHOME and HomeAssistant to automate this.
+#
+# I also wanted to send some command once the PC is powered up to launch different VMs so I added
+# a cheap USB joystick controller to the project and activate it using the ESP8266.
+
+# ***************************************** USER VARS ******************************************
+hostname=mancave-esphome-gamepc.local
+userpass="admin:justatest"
+# This is the vid and pid of the joyside usb controller we are interacting with
+vidpid="0079:0006"
+update_online_status_delay=10
+debug="ON"
+
+# ***************************************** FUNCTIONS ******************************************
+function_message() {
+
+RED="\e[31m"
+GREEN="\e[32m"
+YELLOW="\e[33m"
+ENDCOLOR="\e[0m"
+
+  now=$(date +"%T")
+  case "$1" in
+  "info")
+    echo -e "${now} ${GREEN}INFO:${ENDCOLOR} $2"
+    ;;
+  "debug")
+    if [[ "$debug" == "ON" ]]; then
+    echo -e "${now} ${YELLOW}DEBUG:${ENDCOLOR} $2"
+    fi
+    ;;
+  "error")
+    echo -e "${now} ${RED}ERROR:${ENDCOLOR} $2"
+    ;;
+  esac
+}
+
+function_debouce() {
+    # after detecting a button press we read a few more input lines from the joystck to debounce the datastream
+    read -r joystick_data_stream
+    function_message debug "debounce joystick_data_stream = $joystick_data_stream"
+    read -r joystick_data_stream
+    function_message debug "debounce joystick_data_stream = $joystick_data_stream"
+    read -r joystick_data_stream
+    function_message debug "debounce joystick_data_stream = $joystick_data_stream"
+}
+
+function_vm_work() {
+  vmtostart="$1"
+  function_message debug "function_vm_work. vmtostart=${vmtostart}"
+  vmstate=$(virsh domstate "$vmtostart")
+
+  if [ "$vmstate" = "running" ]; then
+    function_message info "$vmtostart is already running. Nothing to do!"
+  else
+    function_message info "$vmtostart is currently stopped."
+    function_message info "Check if other VMs are running..."
+    vmstat=$(virsh list --all)
+    function_message debug "function_vm_work. vmstat=${vmstat}"
+
+    if [[ "$vmstat" == *"pmsuspend"* ]]; then
+      function_message info "There are VMs in power managment suspend state"
+      function_message info "Waking then up so that we can then shut them down..."
+      curl --digest --user ${userpass} -X POST "${IP}/switch/vmstatus/turn_on"
+      # while loop to wait for vm to wake
+      for i in $(virsh list | grep pmsuspend | awk '{print $2}'); do
+        virsh virsh dompmwakeup "$i"
+        sleep 5
+      done
+    elif [[ "$vmstat" == *"running"* ]]; then
+      function_message info "INFO there are other VMs running."
+      function_message info "Shuting down other VMs..."
+      curl --digest --user ${userpass} -X POST "${IP}/switch/vmstatus/turn_on"
+      virsh shutdown "emu"
+      virsh shutdown "vr"
+      sleep 10 # give vm's time to shutdown
+    else
+      curl --digest --user ${userpass} -X POST "${IP}/switch/vmstatus/turn_off"
+      function_message info "INFO: No other VM's running"
+      function_message info "INFO: starting $vmtostart..."
+      virsh start "$vmtostart"
+      curl --digest --user ${userpass} -X POST "${IP}/switch/vmstatus/turn_on"
+    fi
+
+  fi
+}
+
+# ***************************************** SCRIPT START ******************************************
+
+function_message info "Resloving ${hostname} to an IP address"
+IP=$(getent hosts $hostname | awk '{ print $1 }')
+if [ $? -ne 0 ]; then
+  function_message error "cannot resolve ${hostname}" 1>&2
+  exit 1
+fi
+function_message info "IP = ${IP}"
+
+# Tell the ESP device that this script is online
+function_message info "Set computer boot status to ONLINE"
+curl --digest --user ${userpass} -X POST "${IP}/select/boot_status/set?option=online"
+
+# init timers
+timer_start=$(</proc/uptime)
+timer_start=${timer_start%%.*}                          # remove data after the dot
+timer_start="$(printf '%d' "$timer_start" 2>/dev/null)" # convert string to int
+function_message debug "timer_start = ${timer_start}"
+timer_end=$((timer_start + 2))
+function_message debug "timer_end = ${timer_end}"
+
+# ****************************************** MAIN LOOP *******************************************
+
+function_message info "Listening to joystick inputs"
+while read -r joystick_data_stream; do
+
+  # get a line of data from the joystick input data stream
+  # delete the first 15 chars, we only need the tow chars at postiion 16/17
+  button_press=${joystick_data_stream:15}
+
+  case "$button_press" in
+  "1F") # joystick button 1
+
+    function_message info "Button 1 pressed - Starting EMU"
+    #echo "INFO: Update VM boot status to ON"
+    curl --digest --user ${userpass} -X POST "${IP}/switch/vmstatus/turn_on"
+    function_vm_work "emu"
+    function_debouce
+    ;;
+  "2F") # joystick button 2
+    function_message info "Button 2 pressed - Starting VR"
+   #echo "INFO: Update VM boot status to ON"
+    curl --digest --user ${userpass} -X POST "${IP}/switch/vmstatus/turn_on"
+    function_vm_work "vr"
+    function_debouce
+    ;;
+  esac
+
+  # periodically update the boot and 'vm running' status on the ESP device
+  # it automatically sets itself to offline every n seconds
+  if [ "$timer_start" = "$timer_end" ]; then
+    function_message info "Update 'bootstatus' to ON"
+    curl --digest --user ${userpass} -X POST "${IP}/switch/bootstatus/turn_on"
+
+    vmstat=$(virsh list --all)
+    if [[ "$vmstat" == *"running"* ]]; then
+      function_message info "Update 'VM running' status to ON"
+      curl --digest --user ${userpass} -X POST "${IP}/switch/vmstatus/turn_on"
+    else
+      function_message info "Update 'VM running' status to OFF"
+      curl --digest --user ${userpass} -X POST "${IP}/switch/vmstatus/turn_off"
+    fi
+
+    # set new execution time
+    timer_end=$((timer_start + update_online_status_delay))
+    function_message debug "timer_end = ${timer_end}"
+  fi
+
+  timer_start=$(</proc/uptime)
+  timer_start=${timer_start%%.*}                          # remove data after the dot
+  timer_start="$(printf '%d' "$timer_start" 2>/dev/null)" # convert string to int
+
+  # the next line pipes the output of the hidapitester command into the while loop
+  # -q quite / -vidpid - the USB ID of my game controller / -l 6 - the number of bytes to read each pass.
+done < <(./hidapitester -q --vidpid ${vidpid} -l 6 -t 10000 --open --read-input-forever)
+```
