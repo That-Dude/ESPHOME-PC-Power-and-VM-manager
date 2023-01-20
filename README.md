@@ -29,4 +29,14 @@ virutal machines.
 
 <img width="642" alt="Home-Assistant-ESP-screenshot" src="https://user-images.githubusercontent.com/6509533/213774081-9dc68d25-2d79-43e7-9dbe-fec37419301b.png">
 
-# sdfsdf
+# Bill of materials
+
+1. Zero Delay Arcade USB Encoder £4.50 (ebay)
+2. Wemos D1 Mini clone £4.20 (amazon)
+3. 4 x PC817C optocouplers £0.44
+4. 4 x 1K resister £0.08
+5. 3D printed case (optional)
+
+As you can see, this was a very cheap solution, even if I didn't already have
+all of the parts to hand.
+
